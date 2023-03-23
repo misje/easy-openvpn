@@ -1,0 +1,66 @@
+#!/bin/bash
+# Part of easy-openvpn (github.com/misje/easy-openvpn)
+# Copyright Andreas Misje 2023
+#
+# Usage: ./vpn-add-uplink-client client-name
+#
+# This script is similar to vpn-add-client in all ways except it will not add
+# $ROUTES to the client configuration file. Instead, iroute directives will be
+# placed in the server-side client configuration file.
+#
+# This script will fail if re-run with the same client-name. Only one "uplink
+# client" should be created.
+#
+# Be sure to update vpn-vars first.
+
+set -euo pipefail
+source "./vpn-vars"
+
+if [[ $EUID -ne 0 ]]; then
+	die "This script must be run as root"
+fi
+
+if [[ $# -lt 1 ]]; then
+	die "Usage: $0 uplink-client-name"
+fi
+
+if [[ -f "$KEYDIR/private/$1.key" ]]; then
+	die "Client $1 already exists"
+fi
+
+
+easyrsa build-client-full "$1" nopass
+
+CA="$(<"$KEYDIR/ca.crt")"
+CERT="$(sed -n '/^-----BEGIN CERTIFICATE-----/,/^-----END CERTIFICATE-----/{p;/^-----END CERTIFICATE-----/q}' "$KEYDIR/issued/$1.crt")"
+KEY="$(<"$KEYDIR/private/$1.key")"
+
+cat >"$CLIENTCONFDIR/$1" << EOF
+ifconfig-push $UPLINKCLIENTIP $NETMASK
+$(for route in "${ROUTES[@]}";do echo "iroute $route";done)
+EOF
+
+cat >"/tmp/$SERVERNAME-$1.conf" << EOF
+client
+remote $HOSTNAME
+port $PORT
+dev tun
+nobind
+proto udp
+persist-key
+persist-tun
+resolv-retry infinite
+<ca>
+$CA
+</ca>
+<cert>
+$CERT
+</cert>
+<key>
+$KEY
+</key>
+script-security 2
+up /etc/openvpn/update-resolv-conf
+down /etc/openvpn/update-resolv-conf
+route-nopull
+EOF

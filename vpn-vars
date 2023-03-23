@@ -1,0 +1,48 @@
+#!/bin/bash
+# Part of easy-openvpn (github.com/misje/easy-openvpn)
+# Copyright Andreas Misje 2023
+#
+# Variables used by all scripts to create server and client configuration
+# files, as well as keys and certificates. Carefully look through all variables
+# and modify as needed. At the very least you must change HOSTNAME, otherwise
+# clients will not connect.
+
+# This variable will be used as common name (CN) in your server cert and will
+# also be used to name your OpenVPN server configuration file. easyrsa files
+# will be put in a directory with the same name:
+SERVERNAME="myservername"
+# This is the public IP address or FQDN (fully qualified domain name) that your
+# OpenVPN clients will connect to:
+HOSTNAME="public_server_ip_or_fqdn"
+# Public-faced port (UDP) that clients will connect to:
+PORT=21021
+# Subnet clients will get their IP addresses assigned from:
+SUBNET=10.0.10.0
+# Size of subnet (manually modify IPPOOLEND if this is larger than /24):
+NETMASK=255.255.255.0
+# If a "uplink client" is used, it is given address .2:
+UPLINKCLIENTIP=${SUBNET/%0/2}
+# All other clients will get addresses assigned starting from this address:
+IPPOOLSTART=${SUBNET/%0/3}
+# The last client IP address that can be assigned:
+IPPOOLEND=${SUBNET/%0/254}
+# Where to put server configuration file:
+VPNDIR="/etc/openvpn/server"
+# Where to put easrsa files (in a new directory):
+KEYDIR="$VPNDIR/$SERVERNAME-easyrsa"
+# Where to store client-specific configuration files (also used access control
+# (i.e. a file, which may be empty, must be present for each client)):
+CLIENTCONFDIR="$VPNDIR/$SERVERNAME/client-conf"
+# Optional routes:
+#ROUTES=("192.168.0.0 255.255.255.0" "172.16.0.0 255.255.255.0")
+# Server certificate common name:
+EASYRSA_REQ_CN="$SERVERNAME"
+
+easyrsa() {
+	/usr/share/easy-rsa/easyrsa --pki-dir="$KEYDIR" --days=3650 --batch "$@"
+}
+
+die() {
+	>&2 echo "$@"
+	exit 1
+}

@@ -1,0 +1,56 @@
+#!/bin/bash
+# Part of easy-openvpn (github.com/misje/easy-openvpn)
+# Copyright Andreas Misje 2023
+#
+# Create easyrsa CA infrastructure, Diffie-Hellman values, server certificate
+# and key and lastly a server configuration file. Enable and start server
+# through the means of systemd CLI calls.
+#
+# Be sure to update vpn-vars first.
+
+set -euo pipefail
+source "./vpn-vars"
+
+if [[ $EUID -ne 0 ]]; then
+	die "This script must be run as root"
+fi
+
+mkdir -p "$CLIENTCONFDIR"
+mkdir -p /var/lib/openvpn
+easyrsa init-pki
+easyrsa gen-dh
+easyrsa build-ca nopass
+easyrsa build-server-full "$SERVERNAME" nopass
+
+cat >"$VPNDIR/$SERVERNAME.conf" << EOF
+daemon
+port $PORT
+proto udp
+dev tun
+server $SUBNET $NETMASK nopool
+topology subnet
+cipher AES-256-GCM
+keepalive 10 30
+persist-tun
+verb 3
+duplicate-cn
+explicit-exit-notify 1
+ca "$KEYDIR/ca.crt"
+key "$KEYDIR/private/$SERVERNAME.key"
+cert "$KEYDIR/issued/$SERVERNAME.crt"
+dh "$KEYDIR/dh.pem"
+user nobody
+group nogroup
+persist-key
+client-config-dir "$CLIENTCONFDIR"
+ifconfig-pool $IPPOOLSTART $IPPOOLEND
+ifconfig-pool-persist 0
+$(for route in "${ROUTES[@]}";do echo "route $route $UPLINKCLIENTIP";done)
+mute-replay-warnings
+status /var/lib/openvpn/status 10
+status-version 2
+ccd-exclusive
+EOF
+
+systemctl enable openvpn-server@"$SERVERNAME"
+systemctl restart openvpn-server@"$SERVERNAME"

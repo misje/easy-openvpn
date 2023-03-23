@@ -1,0 +1,65 @@
+#!/bin/bash
+# Part of easy-openvpn (github.com/misje/easy-openvpn)
+# Copyright Andreas Misje 2023
+#
+# Usage: ./vpn-add-client client-name
+#
+# Create a OpenVPN client configuration file in /tmp with embedded certificates
+# and keys. An empty file is created in the server directory in order to grant
+# the client access to connect (due to the ccd-exclusive directive). This file
+# may be modified later to adjust client configuration server-side.
+#
+# If this script is re-run with the same client-name, no new keys and
+# certificates will be created. A new/updated configuration file will be
+# created to /tmp. This allows this script to be used to create new client
+# configuration files if the original is lost.
+#
+# Be sure to update vpn-vars first.
+
+set -euo pipefail
+source "./vpn-vars"
+
+if [[ $EUID -ne 0 ]]; then
+	die "This script must be run as root"
+fi
+
+if [[ $# -lt 1 ]]; then
+	die "Usage: $0 client-name ..."
+fi
+
+for client in "$@"; do
+	if [[ ! -f "$KEYDIR/private/$client.key" ]]; then
+		easyrsa build-client-full "$client" nopass
+	fi
+
+	touch "$CLIENTCONFDIR/$client"
+
+	CA="$(<"$KEYDIR/ca.crt")"
+	CERT="$(sed -n '/^-----BEGIN CERTIFICATE-----/,/^-----END CERTIFICATE-----/{p;/^-----END CERTIFICATE-----/q}' "$KEYDIR/issued/$client.crt")"
+	KEY="$(<"$KEYDIR/private/$client.key")"
+
+	cat >"/tmp/$SERVERNAME-$client.conf" << EOF
+client
+remote $HOSTNAME
+port $PORT
+dev tun
+nobind
+proto udp
+persist-key
+persist-tun
+resolv-retry infinite
+<ca>
+$CA
+</ca>
+<cert>
+$CERT
+</cert>
+<key>
+$KEY
+</key>
+script-security 2
+up /etc/openvpn/update-resolv-conf
+down /etc/openvpn/update-resolv-conf
+$(for route in "${ROUTES[@]}";do echo "route $route";done)
+EOF
+done
